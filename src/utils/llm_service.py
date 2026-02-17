@@ -2,7 +2,6 @@
 
 import pandas as pd
 import streamlit as st
-from openai import OpenAI
 
 from src.data.processor import bereken_kpi_scores, bereken_otd, root_cause_samenvatting
 from src.utils.constants import KPI_NAMEN
@@ -50,6 +49,7 @@ def _get_client() -> OpenAI:
         )
     else:
         # OpenRouter (standaard)
+        from openai import OpenAI
         return OpenAI(
             api_key=config["api_key"],
             base_url=config.get("base_url", "https://openrouter.ai/api/v1"),
