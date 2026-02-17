@@ -1,7 +1,7 @@
 # OTD Dashboard — Elho B.V.
 
 ## Project
-On-Time Delivery dashboard met root-cause analyse. Streamlit + Pandas + Plotly.
+On-Time Delivery dashboard met root-cause analyse en chat assistent. Streamlit + Pandas + Plotly + Supabase + OpenAI.
 
 ## Conventies
 - Nederlandse variabelen, labels en comments
@@ -14,8 +14,12 @@ On-Time Delivery dashboard met root-cause analyse. Streamlit + Pandas + Plotly.
 - `pip install -r requirements.txt` — Installeer dependencies
 
 ## Structuur
-- `app.py` — Entry point, routing
-- `src/data/` — Loader, validator, processor
-- `src/pages/` — Dashboard pagina's
-- `src/components/` — Herbruikbare UI componenten
-- `src/utils/` — Constants, date helpers
+- `app.py` — Entry point, routing, databron keuze
+- `src/data/` — Loader, validator, processor, database (Supabase)
+- `src/pages/` — Dashboard pagina's + assistent
+- `src/components/` — Herbruikbare UI componenten + chat
+- `src/utils/` — Constants, date helpers, LLM service
+
+## Secrets
+- `.streamlit/secrets.toml` — Supabase + LLM credentials (NIET in git)
+- `.streamlit/secrets.toml.example` — Template met instructies

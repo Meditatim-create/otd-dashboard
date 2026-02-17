@@ -9,3 +9,4 @@ venv/
 *.csv
 !data/voorbeeld.csv
 .DS_Store
+.streamlit/secrets.toml

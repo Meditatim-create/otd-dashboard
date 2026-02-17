@@ -1,8 +1,10 @@
-"""CSV/Excel upload en parsing."""
+"""CSV/Excel upload, parsing en database-laden."""
 
 import pandas as pd
 import streamlit as st
 from io import BytesIO
+
+from src.data.database import heeft_database_config, laad_orders
 
 
 def upload_bestand() -> pd.DataFrame | None:
@@ -36,3 +38,10 @@ def lees_bestand(bestand) -> pd.DataFrame:
     )
 
     return df
+
+
+def laad_uit_database() -> pd.DataFrame | None:
+    """Laad data uit Supabase database."""
+    if not heeft_database_config():
+        return None
+    return laad_orders()
