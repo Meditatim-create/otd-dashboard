@@ -1,5 +1,7 @@
 """Supabase database connectie en queries."""
 
+from __future__ import annotations
+
 import pandas as pd
 import streamlit as st
 

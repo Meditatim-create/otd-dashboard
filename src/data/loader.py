@@ -1,5 +1,7 @@
 """CSV/Excel upload, parsing en database-laden."""
 
+from __future__ import annotations
+
 import pandas as pd
 import streamlit as st
 from io import BytesIO

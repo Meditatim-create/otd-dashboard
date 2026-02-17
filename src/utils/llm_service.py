@@ -1,5 +1,7 @@
 """LLM service — Azure OpenAI of OpenRouter."""
 
+from __future__ import annotations
+
 import pandas as pd
 import streamlit as st
 
