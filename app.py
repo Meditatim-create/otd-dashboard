@@ -1,5 +1,7 @@
 """OTD Dashboard — On-Time Delivery Rapportage voor Elho B.V."""
 
+from io import BytesIO
+
 import streamlit as st
 
 from src.data.loader import upload_datagrid, upload_likp, laad_action_portal
@@ -36,6 +38,8 @@ st.markdown(
 # Data initialisatie
 if "df" not in st.session_state:
     st.session_state.df = None
+if "df_mismatches" not in st.session_state:
+    st.session_state.df_mismatches = None
 
 # Action Portal data auto-laden
 if "df_action" not in st.session_state:
@@ -50,20 +54,37 @@ with st.sidebar:
     df_likp_raw = upload_likp()
 
     if df_datagrid_raw is not None and df_likp_raw is not None:
-        df_dg = valideer_datagrid(df_datagrid_raw)
-        df_lk = valideer_likp(df_likp_raw)
+        # Cache key: voorkom herverwerking bij elke rerun
+        cache_key = f"{len(df_datagrid_raw)}_{len(df_likp_raw)}"
+        if st.session_state.get("_cache_key") != cache_key:
+            df_dg = valideer_datagrid(df_datagrid_raw)
+            df_lk = valideer_likp(df_likp_raw)
 
-        if df_dg is not None and df_lk is not None:
-            # Join en performances berekenen
-            df_joined = join_likp(df_dg, df_lk)
-            df_processed = bereken_performances(df_joined)
-            st.session_state.df = voeg_periode_kolommen_toe(df_processed)
-            st.success(f"📊 {len(df_processed)} orders verwerkt met {len(df_lk)} LIKP-leveringen")
+            if df_dg is not None and df_lk is not None:
+                df_joined, df_mismatches = join_likp(df_dg, df_lk)
+                df_processed = bereken_performances(df_joined)
+                st.session_state.df = voeg_periode_kolommen_toe(df_processed)
+                st.session_state.df_mismatches = df_mismatches
+                st.session_state._cache_key = cache_key
+
+                n_match = len(df_processed) - len(df_mismatches)
+                st.success(f"📊 {len(df_processed)} orders verwerkt — {n_match} LIKP-matches")
+        else:
+            # Data al verwerkt, toon status
+            if st.session_state.df is not None:
+                st.success(f"📊 {len(st.session_state.df)} orders geladen (gecached)")
 
     elif df_datagrid_raw is not None:
         st.info("⏳ Upload ook het LIKP bestand om te beginnen.")
     elif df_likp_raw is not None:
         st.info("⏳ Upload ook het Datagrid bestand om te beginnen.")
+
+    # LIKP Mismatch rapport
+    if st.session_state.df_mismatches is not None and len(st.session_state.df_mismatches) > 0:
+        n_mis = len(st.session_state.df_mismatches)
+        with st.expander(f"⚠️ {n_mis} leveringen zonder LIKP-match"):
+            st.caption("Deze DeliveryNumbers uit de Datagrid hebben geen match in LIKP.")
+            st.dataframe(st.session_state.df_mismatches, hide_index=True)
 
 # Pagina navigatie — Action Portal altijd beschikbaar
 pagina_opties = ["Overzicht", "Customer Care", "Logistiek", "Root-Cause", "Trends", "Assistent", "Action Portal"]
@@ -122,6 +143,20 @@ df_filtered = render_filters(st.session_state.df)
 if len(df_filtered) == 0:
     st.warning("Geen orders gevonden voor de geselecteerde filters.")
     st.stop()
+
+# Excel export knop
+def _maak_excel(df):
+    output = BytesIO()
+    with __import__("pandas").ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="OTD Data")
+    return output.getvalue()
+
+st.download_button(
+    "📥 Download gefilterde data (Excel)",
+    data=_maak_excel(df_filtered),
+    file_name="otd_export.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
 
 if pagina == "Overzicht":
     render_overview(df_filtered)

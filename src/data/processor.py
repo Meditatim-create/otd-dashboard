@@ -9,9 +9,11 @@ from src.utils.constants import (
 )
 
 
-def join_likp(df_datagrid: pd.DataFrame, df_likp: pd.DataFrame) -> pd.DataFrame:
+def join_likp(df_datagrid: pd.DataFrame, df_likp: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Join Datagrid met LIKP op DeliveryNumber = Levering.
     Voegt Leveringstermijn en Pickdatum toe aan datagrid.
+
+    Retourneert (joined_df, mismatches_df) — mismatches zijn DeliveryNumbers zonder LIKP-match.
     """
     # Selecteer alleen relevante LIKP kolommen
     likp_cols = ["Levering"]
@@ -31,9 +33,19 @@ def join_likp(df_datagrid: pd.DataFrame, df_likp: pd.DataFrame) -> pd.DataFrame:
     likp_subset = likp_subset.drop(columns=["Levering"])
 
     df = df.merge(likp_subset, on="_join_key", how="left")
+
+    # Mismatch detectie: rijen waar Leveringstermijn NaN is na join
+    lev_col = "Leveringstermijn" if "Leveringstermijn" in df.columns else None
+    if lev_col:
+        mismatch_mask = df[lev_col].isna()
+    else:
+        mismatch_mask = pd.Series(True, index=df.index)
+
+    mismatches = df[mismatch_mask][["DeliveryNumber"]].copy() if mismatch_mask.any() else pd.DataFrame(columns=["DeliveryNumber"])
+
     df = df.drop(columns=["_join_key"])
 
-    return df
+    return df, mismatches
 
 
 def bereken_performances(df: pd.DataFrame) -> pd.DataFrame:

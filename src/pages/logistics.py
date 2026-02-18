@@ -3,12 +3,13 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 
 from src.utils.constants import (
-    PERFORMANCE_STAPPEN, PERFORMANCE_NAMEN, BESCHIKBARE_STAPPEN,
+    PERFORMANCE_STAPPEN, PERFORMANCE_NAMEN, BESCHIKBARE_STAPPEN, BESCHIKBARE_IDS,
     ELHO_GROEN, ROOD, GRIJS,
 )
-from src.data.processor import bereken_kpi_scores
+from src.data.processor import bereken_kpi_scores, bereken_otd
 
 
 def render_logistics(df: pd.DataFrame):
@@ -94,3 +95,42 @@ def render_logistics(df: pd.DataFrame):
                 st.markdown(f"**{geselecteerde_stap}-score per land**")
                 st.dataframe(per_land.style.format({"score": "{:.1f}%"}),
                              width="stretch", hide_index=True)
+
+    # Carrier-vergelijking
+    if "Carrier" in df.columns:
+        st.markdown("---")
+        st.subheader("🚚 Carrier-vergelijking")
+
+        carriers = df.groupby("Carrier").apply(
+            lambda g: pd.Series({
+                "OTD %": bereken_otd(g),
+                "Aantal": len(g),
+                **{PERFORMANCE_NAMEN[pid]: g[pid].dropna().astype(float).mean() * 100
+                   if pid in g.columns and g[pid].notna().any() else None
+                   for pid in BESCHIKBARE_IDS},
+            }), include_groups=False
+        ).reset_index()
+
+        carriers = carriers.sort_values("OTD %")
+
+        # Barchart OTD per carrier
+        fig_carrier = px.bar(
+            carriers, x="Carrier", y="OTD %",
+            color="OTD %",
+            color_continuous_scale=[[0, ROOD], [0.5, "#f39c12"], [1, ELHO_GROEN]],
+            text=carriers["OTD %"].apply(lambda x: f"{x:.1f}%"),
+            title="OTD % per Carrier",
+        )
+        fig_carrier.update_layout(yaxis_range=[0, 105], height=400)
+        st.plotly_chart(fig_carrier, width="stretch")
+
+        # Tabel met alle scores
+        format_dict = {"OTD %": "{:.1f}%", "Aantal": "{:.0f}"}
+        for pid in BESCHIKBARE_IDS:
+            naam = PERFORMANCE_NAMEN[pid]
+            if naam in carriers.columns:
+                format_dict[naam] = "{:.1f}%"
+        st.dataframe(
+            carriers.sort_values("OTD %").style.format(format_dict, na_rep="—"),
+            width="stretch", hide_index=True,
+        )
