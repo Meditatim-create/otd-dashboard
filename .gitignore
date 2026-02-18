@@ -7,6 +7,7 @@ build/
 .venv/
 venv/
 *.csv
-!data/voorbeeld.csv
+*.xlsx
+*.xls
 .DS_Store
 .streamlit/secrets.toml

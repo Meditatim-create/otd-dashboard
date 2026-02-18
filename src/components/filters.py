@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from src.utils.constants import KPI_IDS, KPI_NAMEN, DEFAULT_TARGETS
+from src.utils.constants import BESCHIKBARE_IDS, PERFORMANCE_NAMEN, DEFAULT_TARGETS
 from src.utils.date_utils import snelkeuze_periodes
 
 
@@ -20,7 +20,8 @@ def render_filters(df: pd.DataFrame) -> pd.DataFrame:
 
     st.sidebar.header("🔍 Filters")
 
-    # Periode filter
+    # Periode filter op RequestedDeliveryDateFinal
+    datum_kolom = "RequestedDeliveryDateFinal"
     st.sidebar.subheader("Periode")
     periodes = snelkeuze_periodes()
     snelkeuze = st.sidebar.selectbox("Snelkeuze", ["Aangepast"] + list(periodes.keys()))
@@ -28,44 +29,55 @@ def render_filters(df: pd.DataFrame) -> pd.DataFrame:
     if snelkeuze != "Aangepast" and snelkeuze in periodes:
         start, eind = periodes[snelkeuze]
     else:
-        min_datum = df["gewenste_leverdatum"].min().date() if not df["gewenste_leverdatum"].isna().all() else datetime(2024, 1, 1).date()
-        max_datum = df["gewenste_leverdatum"].max().date() if not df["gewenste_leverdatum"].isna().all() else datetime.now().date()
+        if datum_kolom in df.columns and not df[datum_kolom].isna().all():
+            min_datum = df[datum_kolom].min().date()
+            max_datum = df[datum_kolom].max().date()
+        else:
+            min_datum = datetime(2024, 1, 1).date()
+            max_datum = datetime.now().date()
         start = st.sidebar.date_input("Van", value=min_datum, min_value=min_datum, max_value=max_datum)
         eind = st.sidebar.date_input("Tot", value=max_datum, min_value=min_datum, max_value=max_datum)
 
     # Datumfilter toepassen
     mask = pd.Series(True, index=df.index)
-    if "gewenste_leverdatum" in df.columns:
-        mask &= df["gewenste_leverdatum"].dt.date >= start
-        mask &= df["gewenste_leverdatum"].dt.date <= eind
+    if datum_kolom in df.columns:
+        mask &= df[datum_kolom].dt.date >= start
+        mask &= df[datum_kolom].dt.date <= eind
 
-    # Klant filter
-    if "klant" in df.columns:
-        klanten = sorted(df["klant"].dropna().unique())
-        geselecteerde_klanten = st.sidebar.multiselect("Klant", klanten)
+    # ChainName filter (klant)
+    if "ChainName" in df.columns:
+        klanten = sorted(df["ChainName"].dropna().unique())
+        geselecteerde_klanten = st.sidebar.multiselect("Klant (ChainName)", klanten)
         if geselecteerde_klanten:
-            mask &= df["klant"].isin(geselecteerde_klanten)
+            mask &= df["ChainName"].isin(geselecteerde_klanten)
 
-    # Productgroep filter
-    if "productgroep" in df.columns:
-        groepen = sorted(df["productgroep"].dropna().unique())
-        geselecteerde_groepen = st.sidebar.multiselect("Productgroep", groepen)
-        if geselecteerde_groepen:
-            mask &= df["productgroep"].isin(geselecteerde_groepen)
+    # Country filter (regio)
+    if "Country" in df.columns:
+        landen = sorted(df["Country"].dropna().unique())
+        geselecteerde_landen = st.sidebar.multiselect("Land (Country)", landen)
+        if geselecteerde_landen:
+            mask &= df["Country"].isin(geselecteerde_landen)
 
-    # Regio filter
-    if "regio" in df.columns:
-        regios = sorted(df["regio"].dropna().unique())
-        geselecteerde_regios = st.sidebar.multiselect("Regio", regios)
-        if geselecteerde_regios:
-            mask &= df["regio"].isin(geselecteerde_regios)
+    # SalesArea filter
+    if "SalesArea" in df.columns:
+        areas = sorted(df["SalesArea"].dropna().astype(str).unique())
+        geselecteerde_areas = st.sidebar.multiselect("SalesArea", areas)
+        if geselecteerde_areas:
+            mask &= df["SalesArea"].astype(str).isin(geselecteerde_areas)
 
-    # Targets instellen
+    # Carrier filter
+    if "Carrier" in df.columns:
+        carriers = sorted(df["Carrier"].dropna().astype(str).unique())
+        geselecteerde_carriers = st.sidebar.multiselect("Carrier", carriers)
+        if geselecteerde_carriers:
+            mask &= df["Carrier"].astype(str).isin(geselecteerde_carriers)
+
+    # Targets instellen (alleen beschikbare performances)
     st.sidebar.markdown("---")
     st.sidebar.subheader("🎯 Targets (%)")
-    for kpi_id in KPI_IDS:
+    for kpi_id in BESCHIKBARE_IDS:
         st.session_state.targets[kpi_id] = st.sidebar.number_input(
-            KPI_NAMEN[kpi_id],
+            PERFORMANCE_NAMEN[kpi_id],
             min_value=0.0,
             max_value=100.0,
             value=st.session_state.targets[kpi_id],

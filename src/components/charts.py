@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 
-from src.utils.constants import ELHO_GROEN, ELHO_DONKER, ROOD, KPI_NAMEN
+from src.utils.constants import ELHO_GROEN, ELHO_DONKER, ROOD, PERFORMANCE_NAMEN, BESCHIKBARE_IDS
 
 
 def pareto_chart(samenvatting: pd.DataFrame) -> go.Figure:
@@ -44,11 +44,25 @@ def pareto_chart(samenvatting: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def kpi_barchart(scores: dict[str, float], targets: dict[str, float]) -> go.Figure:
-    """Horizontale barchart met alle KPI-scores en target-lijnen."""
-    namen = [KPI_NAMEN[k] for k in scores]
-    waarden = list(scores.values())
-    target_waarden = [targets.get(k, 95) for k in scores]
+def kpi_barchart(scores: dict[str, float | None], targets: dict[str, float]) -> go.Figure:
+    """Horizontale barchart met beschikbare KPI-scores en target-lijnen.
+    Skipt stappen met score=None (under construction).
+    """
+    namen = []
+    waarden = []
+    target_waarden = []
+
+    for kpi_id in BESCHIKBARE_IDS:
+        score = scores.get(kpi_id)
+        if score is None:
+            continue
+        namen.append(PERFORMANCE_NAMEN[kpi_id])
+        waarden.append(score)
+        target_waarden.append(targets.get(kpi_id, 95))
+
+    if not namen:
+        return go.Figure()
+
     kleuren = [ELHO_GROEN if v >= t else ROOD for v, t in zip(waarden, target_waarden)]
 
     fig = go.Figure()
@@ -63,7 +77,6 @@ def kpi_barchart(scores: dict[str, float], targets: dict[str, float]) -> go.Figu
         name="Score",
     ))
 
-    # Target markers
     fig.add_trace(go.Scatter(
         y=namen,
         x=target_waarden,
@@ -73,7 +86,7 @@ def kpi_barchart(scores: dict[str, float], targets: dict[str, float]) -> go.Figu
     ))
 
     fig.update_layout(
-        title="KPI Scores vs. Targets",
+        title="Performance Scores vs. Targets",
         xaxis=dict(title="%", range=[0, 105]),
         height=350,
         showlegend=True,
@@ -83,7 +96,7 @@ def kpi_barchart(scores: dict[str, float], targets: dict[str, float]) -> go.Figu
 
 
 def trend_chart(df_trend: pd.DataFrame, targets: dict[str, float], periode_kolom: str = "week") -> go.Figure:
-    """Trendlijnen per KPI over tijd."""
+    """Trendlijnen per performance over tijd."""
     if df_trend.empty:
         return go.Figure()
 
@@ -91,8 +104,9 @@ def trend_chart(df_trend: pd.DataFrame, targets: dict[str, float], periode_kolom
 
     kleuren_lijst = ["#76a73a", "#0a4a2f", "#2ecc71", "#27ae60", "#e74c3c", "#e67e22", "#3498db"]
 
-    for i, kpi_id in enumerate([c for c in df_trend.columns if c != periode_kolom]):
-        naam = KPI_NAMEN.get(kpi_id, kpi_id)
+    kpi_cols = [c for c in df_trend.columns if c != periode_kolom]
+    for i, kpi_id in enumerate(kpi_cols):
+        naam = PERFORMANCE_NAMEN.get(kpi_id, kpi_id)
         fig.add_trace(go.Scatter(
             x=df_trend[periode_kolom],
             y=df_trend[kpi_id],
@@ -102,7 +116,7 @@ def trend_chart(df_trend: pd.DataFrame, targets: dict[str, float], periode_kolom
         ))
 
     fig.update_layout(
-        title="KPI Trends over Tijd",
+        title="Performance Trends over Tijd",
         xaxis_title="Periode",
         yaxis_title="%",
         yaxis=dict(range=[0, 105]),

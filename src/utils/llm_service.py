@@ -6,11 +6,21 @@ import pandas as pd
 import streamlit as st
 
 from src.data.processor import bereken_kpi_scores, bereken_otd, root_cause_samenvatting
-from src.utils.constants import KPI_NAMEN
+from src.utils.constants import PERFORMANCE_NAMEN, BESCHIKBARE_IDS
 
 
 SYSTEM_PROMPT = """Je bent een OTD-analist voor Elho B.V., een toonaangevend bedrijf in tuinproducten.
 Je helpt management met het analyseren van On-Time Delivery prestaties.
+
+Het OTD-model meet 6 logistics performances in de leveringsketen:
+1. Planned Performance — TMS-datum vs SAP Delivery Date
+2. Capacity Performance — Bucket planning (moved/not moved)
+3. Warehouse Performance — Actual GI vs Planned GI
+4. Carrier Pick-up — UNDER CONSTRUCTION (geen data)
+5. Carrier Departure — UNDER CONSTRUCTION (geen data)
+6. Carrier Transit — POD vs TMS-datum
+
+OTD = POD-datum <= Gevraagde leverdatum (RequestedDeliveryDateFinal)
 
 Je hebt toegang tot de volgende data-context over de huidige dataset:
 {context}
@@ -18,7 +28,7 @@ Je hebt toegang tot de volgende data-context over de huidige dataset:
 Richtlijnen:
 - Antwoord altijd in het Nederlands
 - Geef concrete cijfers en percentages waar mogelijk
-- Verwijs naar specifieke KPI-stappen wanneer relevant (Vrijgave → TMS → Bucket → Warehouse → Ophaling → Vertrek → POD)
+- Verwijs naar specifieke performances wanneer relevant
 - Geef actionable aanbevelingen
 - Wees beknopt maar volledig
 - Als je iets niet kunt afleiden uit de data, zeg dat eerlijk"""
@@ -37,7 +47,7 @@ def is_beschikbaar() -> bool:
     return _heeft_llm_config()
 
 
-def _get_client() -> OpenAI:
+def _get_client():
     """Maak OpenAI client aan op basis van configuratie."""
     config = st.secrets["llm"]
     provider = config.get("provider", "openrouter")
@@ -50,7 +60,6 @@ def _get_client() -> OpenAI:
             azure_endpoint=config["endpoint"],
         )
     else:
-        # OpenRouter (standaard)
         from openai import OpenAI
         return OpenAI(
             api_key=config["api_key"],
@@ -75,10 +84,15 @@ def bereid_context_voor(df: pd.DataFrame) -> str:
         f"Totaal orders: {totaal}",
         f"Overall OTD: {otd:.1f}%",
         "",
-        "KPI-scores per stap:",
+        "Performance-scores per stap:",
     ]
-    for kpi_id, score in scores.items():
-        regels.append(f"  - {KPI_NAMEN.get(kpi_id, kpi_id)}: {score:.1f}%")
+    for kpi_id in BESCHIKBARE_IDS:
+        score = scores.get(kpi_id)
+        naam = PERFORMANCE_NAMEN.get(kpi_id, kpi_id)
+        if score is not None:
+            regels.append(f"  - {naam}: {score:.1f}%")
+        else:
+            regels.append(f"  - {naam}: geen data")
 
     if not rc.empty:
         regels.append("")
@@ -87,24 +101,28 @@ def bereid_context_voor(df: pd.DataFrame) -> str:
             regels.append(f"  - {rij['root_cause_naam']}: {rij['aantal']}x ({rij['percentage']:.1f}%)")
 
     # Klant-overzicht
-    if "klant" in df.columns:
+    if "ChainName" in df.columns:
         regels.append("")
-        regels.append(f"Aantal unieke klanten: {df['klant'].nunique()}")
-        # Top klanten met meeste te late orders
-        if "gewenste_leverdatum" in df.columns and "werkelijke_leverdatum" in df.columns:
-            te_laat = df[df["werkelijke_leverdatum"] > df["gewenste_leverdatum"]]
+        regels.append(f"Aantal unieke klanten: {df['ChainName'].nunique()}")
+        if "PODDeliveryDateShipment" in df.columns and "RequestedDeliveryDateFinal" in df.columns:
+            pod = pd.to_datetime(df["PODDeliveryDateShipment"], dayfirst=True, errors="coerce")
+            req = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+            valid = pod.notna() & req.notna()
+            te_laat = df[valid & (pod > req)]
             if not te_laat.empty:
-                top_klanten = te_laat["klant"].value_counts().head(5)
+                top_klanten = te_laat["ChainName"].value_counts().head(5)
                 regels.append("Top klanten met te late orders:")
                 for klant, aantal in top_klanten.items():
                     regels.append(f"  - {klant}: {aantal}x")
 
     # Periode
-    if "gewenste_leverdatum" in df.columns:
-        min_datum = df["gewenste_leverdatum"].min()
-        max_datum = df["gewenste_leverdatum"].max()
-        regels.append("")
-        regels.append(f"Periode: {min_datum.strftime('%d-%m-%Y')} t/m {max_datum.strftime('%d-%m-%Y')}")
+    if "RequestedDeliveryDateFinal" in df.columns:
+        datum_col = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+        if datum_col.notna().any():
+            min_datum = datum_col.min()
+            max_datum = datum_col.max()
+            regels.append("")
+            regels.append(f"Periode: {min_datum.strftime('%d-%m-%Y')} t/m {max_datum.strftime('%d-%m-%Y')}")
 
     return "\n".join(regels)
 
@@ -121,7 +139,6 @@ def stel_vraag(vraag: str, context: str, geschiedenis: list[dict]) -> str:
         berichten = [
             {"role": "system", "content": SYSTEM_PROMPT.format(context=context)},
         ]
-        # Voeg chatgeschiedenis toe (laatste 10 berichten)
         for bericht in geschiedenis[-10:]:
             berichten.append(bericht)
         berichten.append({"role": "user", "content": vraag})
