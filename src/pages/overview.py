@@ -1,4 +1,4 @@
-"""Hoofdoverzicht met waterval + KPI-kaarten."""
+"""Hoofdoverzicht met OTD, 6 performance kaarten en waterval."""
 
 import streamlit as st
 import pandas as pd
@@ -20,7 +20,7 @@ def render_overview(df: pd.DataFrame):
     # OTD header
     render_otd_header(otd, len(df))
 
-    # KPI kaarten
+    # 6 Performance kaarten (inclusief under construction)
     render_kpi_kaarten(scores, targets)
 
     st.markdown("---")
@@ -31,23 +31,33 @@ def render_overview(df: pd.DataFrame):
     with col1:
         wv = waterval_data(df)
         fig = render_waterval(wv)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         fig2 = kpi_barchart(scores, targets)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     # Samenvatting
     st.subheader("📋 Samenvatting")
     col_a, col_b, col_c = st.columns(3)
 
-    te_laat = df[df["werkelijke_leverdatum"] > df["gewenste_leverdatum"]] if "werkelijke_leverdatum" in df.columns else pd.DataFrame()
+    # OTD berekening: POD <= RequestedDeliveryDateFinal
+    if "PODDeliveryDateShipment" in df.columns and "RequestedDeliveryDateFinal" in df.columns:
+        pod = pd.to_datetime(df["PODDeliveryDateShipment"], dayfirst=True, errors="coerce")
+        req = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+        valid = pod.notna() & req.notna()
+        te_laat_count = (pod[valid] > req[valid]).sum()
+        op_tijd_count = valid.sum() - te_laat_count
+    else:
+        te_laat_count = 0
+        op_tijd_count = 0
+
     col_a.metric("Totaal orders", len(df))
-    col_b.metric("Op tijd", len(df) - len(te_laat))
-    col_c.metric("Te laat", len(te_laat))
+    col_b.metric("Op tijd", op_tijd_count)
+    col_c.metric("Te laat", te_laat_count)
 
     # Top root causes
     rc = root_cause_samenvatting(df)
     if not rc.empty:
         st.subheader("🔍 Top Root Causes")
-        st.dataframe(rc, use_container_width=True, hide_index=True)
+        st.dataframe(rc, width="stretch", hide_index=True)

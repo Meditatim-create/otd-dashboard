@@ -40,6 +40,6 @@ def render_voorbeeldvragen() -> str | None:
     st.markdown("**Voorbeeldvragen:**")
     cols = st.columns(len(VOORBEELDVRAGEN))
     for i, vraag in enumerate(VOORBEELDVRAGEN):
-        if cols[i % len(cols)].button(vraag, key=f"voorbeeld_{i}", use_container_width=True):
+        if cols[i % len(cols)].button(vraag, key=f"voorbeeld_{i}", width="stretch"):
             return vraag
     return None
