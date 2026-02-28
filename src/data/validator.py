@@ -65,6 +65,10 @@ def valideer_datagrid(df: pd.DataFrame) -> pd.DataFrame | None:
 
 def valideer_likp(df: pd.DataFrame) -> pd.DataFrame | None:
     """Valideer en verwerk LIKP (SAP SE16n)."""
+    # Normaliseer bekende kolomnaam-varianten vóór validatie
+    from src.data.processor import _normaliseer_likp_kolommen
+    df = _normaliseer_likp_kolommen(df)
+
     is_valid, fouten = _valideer_kolommen(df, VERPLICHTE_LIKP_KOLOMMEN, "LIKP")
     if not is_valid:
         for fout in fouten:

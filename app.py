@@ -6,7 +6,7 @@ import streamlit as st
 
 from src.data.loader import upload_datagrid, upload_likp, laad_action_portal
 from src.data.validator import valideer_datagrid, valideer_likp
-from src.data.processor import join_likp, bereken_performances
+from src.data.processor import join_likp, bereken_performances, dedup_datagrid
 from src.components.filters import render_filters
 from src.pages.overview import render_overview
 from src.pages.customer_care import render_customer_care
@@ -61,6 +61,7 @@ with st.sidebar:
             df_lk = valideer_likp(df_likp_raw)
 
             if df_dg is not None and df_lk is not None:
+                df_dg = dedup_datagrid(df_dg)
                 df_joined, df_mismatches = join_likp(df_dg, df_lk)
                 df_processed = bereken_performances(df_joined)
                 st.session_state.df = voeg_periode_kolommen_toe(df_processed)

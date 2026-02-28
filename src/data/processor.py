@@ -8,11 +8,41 @@ Berekeningen zijn config-driven via rekenmodel.yaml:
 import pandas as pd
 import numpy as np
 
-from src.config import get_otd_config, get_performance_config, get_alle_performances
+from src.config import get_otd_config, get_performance_config, get_alle_performances, get_dedup_config
 from src.utils.constants import (
     PERFORMANCE_STAPPEN, PERFORMANCE_IDS, PERFORMANCE_NAMEN,
     BESCHIKBARE_STAPPEN, BESCHIKBARE_IDS,
 )
+
+# LIKP kolomnaam-mapping: SAP SE16n export kan afwijkende namen hebben
+_LIKP_KOLOM_ALIASSEN = {
+    "Leveringstermijn": ["Leveringstermijn", "Lev.termijn", "LFDAT"],
+    "Pickdatum": ["Pickdatum", "KODAT"],
+    "Gecreëerd op": ["Gecreëerd op", "Gecr. op", "ERDAT"],
+}
+
+
+def _normaliseer_likp_kolommen(df_likp: pd.DataFrame) -> pd.DataFrame:
+    """Hernoem bekende LIKP kolomnaam-varianten naar standaard namen."""
+    df = df_likp.copy()
+    for standaard, aliassen in _LIKP_KOLOM_ALIASSEN.items():
+        if standaard not in df.columns:
+            for alias in aliassen:
+                if alias in df.columns:
+                    df = df.rename(columns={alias: standaard})
+                    break
+    return df
+
+
+def dedup_datagrid(df: pd.DataFrame) -> pd.DataFrame:
+    """Dedupliceer datagrid op basis van config (standaard: DeliveryNumber)."""
+    cfg = get_dedup_config()
+    if not cfg.get("enabled", False):
+        return df
+    key = cfg.get("key", "DeliveryNumber")
+    if key in df.columns:
+        return df.drop_duplicates(subset=key, keep="first")
+    return df
 
 
 def join_likp(df_datagrid: pd.DataFrame, df_likp: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -21,6 +51,9 @@ def join_likp(df_datagrid: pd.DataFrame, df_likp: pd.DataFrame) -> tuple[pd.Data
 
     Retourneert (joined_df, mismatches_df) — mismatches zijn DeliveryNumbers zonder LIKP-match.
     """
+    # Normaliseer LIKP kolomnamen (Lev.termijn → Leveringstermijn, etc.)
+    df_likp = _normaliseer_likp_kolommen(df_likp)
+
     # Selecteer alleen relevante LIKP kolommen
     likp_cols = ["Levering"]
     for col in ["Leveringstermijn", "Pickdatum", "Gecreëerd op"]:

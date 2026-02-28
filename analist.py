@@ -24,7 +24,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.config import toon_config_tekst
-from src.data.processor import bereken_performances, bereken_otd, bereken_kpi_scores, root_cause_samenvatting
+from src.data.processor import bereken_performances, bereken_otd, bereken_kpi_scores, root_cause_samenvatting, dedup_datagrid
 from src.data.validator import valideer_datagrid, valideer_likp
 from src.data.processor import join_likp
 from src.feedback_manager import bewaar_feedback, feedback_als_tekst
@@ -171,6 +171,13 @@ def _laad_data(data_pad: str, likp_pad: str | None = None) -> pd.DataFrame:
     if df is None:
         print("FOUT: Datagrid validatie mislukt.")
         sys.exit(1)
+
+    # Dedup op DeliveryNumber (config-driven)
+    n_voor = len(df)
+    df = dedup_datagrid(df)
+    n_na = len(df)
+    if n_na < n_voor:
+        print(f"Dedup: {n_voor} -> {n_na} unieke leveringen ({n_voor - n_na} duplicaten verwijderd)")
 
     if likp_pad:
         df_likp_raw = _lees_bestand(likp_pad)

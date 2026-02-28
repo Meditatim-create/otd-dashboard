@@ -86,6 +86,12 @@ def herlaad_config() -> dict:
     return laad_config()
 
 
+def get_dedup_config() -> dict:
+    """Haal dedup-configuratie op."""
+    cfg = laad_config()
+    return cfg.get("dedup", {"enabled": False})
+
+
 def get_otd_config() -> dict:
     """Haal OTD-configuratie op."""
     cfg = laad_config()

@@ -1,30 +1,33 @@
 # Rekenmodel OTD Dashboard — configureerbaar per KPI
 # method: "column" (lees PowerBI-kolom) of "recalculate" (herbereken uit datums)
-# Standaard: "column" overal → matcht PowerBI
+# Gevalideerd op 28-02-2026 tegen PowerBI dashboard
 
 no_pod:
   exclude_from_denominator: true   # ELHO standaard: orders zonder POD tellen niet mee
 
+dedup:
+  enabled: true
+  key: "DeliveryNumber"            # PowerBI telt unieke leveringen
+
 otd:
   method: "column"
-  source_column: "PERFORMANCE_CUSTOMER_FINAL"
+  source_column: "PERFORMANCE_CUSTOMER_BOOK_IN"   # Matcht PowerBI (incl. book-in correcties)
   ok_values: ["OnTime"]
   no_pod_values: ["NO POD"]
-  # alternatief:
-  # method: "recalculate"
-  # → OTD = PODDeliveryDateShipment <= RequestedDeliveryDateFinal
+  # alternatief zonder book-in correcties:
+  # source_column: "PERFORMANCE_CUSTOMER_FINAL"
 
 performances:
   planned_performance_ok:
     naam: "Planned Performance"
     nummer: 1
     beschikbaar: true
-    method: "column"
-    source_column: "planned performance"
-    ok_values: ["ontime"]
-    # alternatief:
-    # method: "recalculate"
-    # dates: ["Leveringstermijn", "SAP Delivery Date"]
+    method: "recalculate"                          # Kolom 'planned performance' niet in standaard PowerBI export
+    dates: ["Leveringstermijn", "SAP Delivery Date"]
+    # als kolom WEL beschikbaar:
+    # method: "column"
+    # source_column: "planned performance"
+    # ok_values: ["ontime"]
 
   capacity_performance_ok:
     naam: "Capacity Performance"
@@ -60,6 +63,3 @@ performances:
     source_column: "PERFORMANCE_TRANSPORT"
     ok_values: ["OnTime"]
     no_pod_values: ["NO POD"]
-    # alternatief:
-    # method: "recalculate"
-    # dates: ["PODDeliveryDateShipment", "Leveringstermijn"]
