@@ -2,9 +2,36 @@
 
 from __future__ import annotations
 
+import os
 import numpy as np
 import pandas as pd
-import streamlit as st
+
+
+def _in_streamlit() -> bool:
+    """Detecteer of we in Streamlit-context draaien."""
+    try:
+        import streamlit as st
+        ctx = st.runtime.scriptrunner.get_script_run_ctx()
+        return ctx is not None
+    except Exception:
+        return False
+
+
+def _melding(niveau: str, tekst: str):
+    """Toon melding via Streamlit (dashboard) of print (CLI)."""
+    if _in_streamlit():
+        import streamlit as st
+        if niveau == "success":
+            st.success(tekst)
+        elif niveau == "warning":
+            st.warning(tekst)
+        elif niveau == "error":
+            st.error(tekst)
+        elif niveau == "info":
+            st.info(tekst)
+    else:
+        # Strip emoji's voor Windows terminal (cp1252 encoding)
+        print(tekst.encode("ascii", errors="ignore").decode("ascii"))
 
 from src.utils.constants import (
     VERPLICHTE_DATAGRID_KOLOMMEN,
@@ -48,7 +75,7 @@ def _converteer_datums(df: pd.DataFrame, datum_kolommen: list[str]) -> pd.DataFr
             df[kolom] = pd.to_datetime(df[kolom], dayfirst=True, errors="coerce")
             n_fout = df[kolom].isna().sum()
             if n_fout > 0:
-                st.warning(f"⚠️ {n_fout} rijen met ongeldig datumformaat in '{kolom}'")
+                _melding("warning", f"⚠️ {n_fout} rijen met ongeldig datumformaat in '{kolom}'")
     return df
 
 
@@ -57,12 +84,12 @@ def valideer_datagrid(df: pd.DataFrame) -> pd.DataFrame | None:
     is_valid, fouten = _valideer_kolommen(df, VERPLICHTE_DATAGRID_KOLOMMEN, "Datagrid")
     if not is_valid:
         for fout in fouten:
-            st.error(f"❌ {fout}")
-        st.info(f"💡 Verwachte kolommen: {', '.join(VERPLICHTE_DATAGRID_KOLOMMEN)}")
+            _melding("error", f"❌ {fout}")
+        _melding("info", f"💡 Verwachte kolommen: {', '.join(VERPLICHTE_DATAGRID_KOLOMMEN)}")
         return None
 
     df = _converteer_datums(df, DATAGRID_DATUM_KOLOMMEN)
-    st.success(f"✅ Datagrid: {len(df)} orders geladen")
+    _melding("success", f"✅ Datagrid: {len(df)} orders geladen")
     return df
 
 
@@ -75,12 +102,12 @@ def valideer_likp(df: pd.DataFrame) -> pd.DataFrame | None:
     is_valid, fouten = _valideer_kolommen(df, VERPLICHTE_LIKP_KOLOMMEN, "LIKP")
     if not is_valid:
         for fout in fouten:
-            st.error(f"❌ {fout}")
-        st.info(f"💡 Verwachte kolommen: {', '.join(VERPLICHTE_LIKP_KOLOMMEN)}")
+            _melding("error", f"❌ {fout}")
+        _melding("info", f"💡 Verwachte kolommen: {', '.join(VERPLICHTE_LIKP_KOLOMMEN)}")
         return None
 
     df = _converteer_datums(df, LIKP_DATUM_KOLOMMEN)
-    st.success(f"✅ LIKP: {len(df)} leveringen geladen")
+    _melding("success", f"✅ LIKP: {len(df)} leveringen geladen")
     return df
 
 

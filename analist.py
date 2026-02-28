@@ -15,10 +15,18 @@ Commando's in chat:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
+import warnings
 
 import pandas as pd
+
+# Onderdruk Streamlit warnings in CLI-modus
+os.environ["STREAMLIT_RUNTIME"] = "0"
+logging.getLogger("streamlit").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", message=".*ScriptRunContext.*")
+warnings.filterwarnings("ignore", message=".*Could not infer format.*")
 
 # Voeg project root toe aan pad zodat src.* imports werken
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -118,6 +126,48 @@ def _bereid_context_voor(df: pd.DataFrame) -> str:
         datum_col = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
         if datum_col.notna().any():
             regels.append(f"Periode: {datum_col.min().strftime('%d-%m-%Y')} t/m {datum_col.max().strftime('%d-%m-%Y')}")
+
+    # OTD per land
+    if "Country" in df.columns:
+        regels.append("")
+        regels.append("OTD per land:")
+        for land, groep in df.groupby("Country"):
+            otd_land = bereken_otd(groep)
+            regels.append(f"  - {land}: {otd_land:.1f}% ({len(groep)} orders)")
+
+    # OTD per maand
+    if "RequestedDeliveryDateFinal" in df.columns:
+        df_temp = df.copy()
+        datum = pd.to_datetime(df_temp["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+        df_temp["_maand"] = datum.dt.to_period("M").astype(str)
+        valid_maand = df_temp[df_temp["_maand"].notna() & (df_temp["_maand"] != "NaT")]
+        if len(valid_maand) > 0:
+            regels.append("")
+            regels.append("OTD per maand:")
+            for maand, groep in valid_maand.groupby("_maand"):
+                otd_maand = bereken_otd(groep)
+                regels.append(f"  - {maand}: {otd_maand:.1f}% ({len(groep)} orders)")
+
+    # OTD per land per maand (top-level kruistabel)
+    if "Country" in df.columns and "RequestedDeliveryDateFinal" in df.columns:
+        df_temp = df.copy()
+        datum = pd.to_datetime(df_temp["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+        df_temp["_maand"] = datum.dt.to_period("M").astype(str)
+        valid = df_temp[df_temp["_maand"].notna() & (df_temp["_maand"] != "NaT")]
+        if len(valid) > 0:
+            regels.append("")
+            regels.append("OTD per land per maand:")
+            for (land, maand), groep in valid.groupby(["Country", "_maand"]):
+                otd_lm = bereken_otd(groep)
+                regels.append(f"  - {land} / {maand}: {otd_lm:.1f}% ({len(groep)} orders)")
+
+    # OTD per SalesArea
+    if "SalesArea" in df.columns:
+        regels.append("")
+        regels.append("OTD per SalesArea:")
+        for area, groep in df.groupby("SalesArea"):
+            otd_area = bereken_otd(groep)
+            regels.append(f"  - {area}: {otd_area:.1f}% ({len(groep)} orders)")
 
     return "\n".join(regels)
 
