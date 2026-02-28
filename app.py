@@ -13,7 +13,9 @@ from src.pages.customer_care import render_customer_care
 from src.pages.logistics import render_logistics
 from src.pages.root_cause import render_root_cause
 from src.pages.trends import render_trends
+from src.pages.regio import render_regio
 from src.pages.assistent import render_assistent
+from src.pages.validatie import render_validatie
 from src.pages.action_portal import render_action_portal
 from src.utils.date_utils import voeg_periode_kolommen_toe
 
@@ -88,7 +90,7 @@ with st.sidebar:
             st.dataframe(st.session_state.df_mismatches, hide_index=True)
 
 # Pagina navigatie — Action Portal altijd beschikbaar
-pagina_opties = ["Overzicht", "Customer Care", "Logistiek", "Root-Cause", "Trends", "Assistent", "Action Portal"]
+pagina_opties = ["Overzicht", "Customer Care", "Logistiek", "Regio", "Root-Cause", "Trends", "Validatie", "Assistent", "Action Portal"]
 pagina = st.radio(
     "Navigatie",
     pagina_opties,
@@ -165,9 +167,13 @@ elif pagina == "Customer Care":
     render_customer_care(df_filtered)
 elif pagina == "Logistiek":
     render_logistics(df_filtered)
+elif pagina == "Regio":
+    render_regio(df_filtered)
 elif pagina == "Root-Cause":
     render_root_cause(df_filtered)
 elif pagina == "Trends":
     render_trends(df_filtered)
+elif pagina == "Validatie":
+    render_validatie(df_filtered)
 elif pagina == "Assistent":
     render_assistent(df_filtered)

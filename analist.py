@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.config import toon_config_tekst
 from src.data.processor import bereken_performances, bereken_otd, bereken_kpi_scores, root_cause_samenvatting, dedup_datagrid
-from src.data.validator import valideer_datagrid, valideer_likp
+from src.data.validator import valideer_datagrid, valideer_likp, kruisvalidatie
 from src.data.processor import join_likp
 from src.feedback_manager import bewaar_feedback, feedback_als_tekst
 from src.utils.constants import PERFORMANCE_NAMEN, BESCHIKBARE_IDS
@@ -231,6 +231,22 @@ def _cmd_correctie(geschiedenis: list[dict]):
     print(f"Correctie opgeslagen: {pad.name}\n")
 
 
+def _cmd_valideer(df: pd.DataFrame):
+    """Voer kruisvalidatie uit en print resultaat."""
+    print("\nKruisvalidatie Python vs PowerBI:")
+    print("-" * 70)
+    kv = kruisvalidatie(df)
+    if kv.empty:
+        print("Geen kruisvalidatie mogelijk — controleer rekenmodel.yaml configuratie.")
+    else:
+        for _, rij in kv.iterrows():
+            py_pct = f"{rij['Python %']:.2f}%" if pd.notna(rij['Python %']) else "—"
+            pb_pct = f"{rij['PowerBI kolom %']:.2f}%" if pd.notna(rij['PowerBI kolom %']) else "—"
+            verschil = f"{rij['Verschil']:.2f}%" if pd.notna(rij['Verschil']) else "—"
+            print(f"  {rij['KPI']:25s}  Python: {py_pct:>8s}  PowerBI: {pb_pct:>8s}  Verschil: {verschil:>7s}  {rij['Status']}")
+    print()
+
+
 def _cmd_help():
     """Toon beschikbare commando's."""
     print("""
@@ -239,6 +255,7 @@ Beschikbare commando's:
   correctie  — sla een correctie op voor de feedback loop
   help       — dit overzicht
   quiz       — test je OTD-kennis met een quizvraag
+  valideer   — kruisvalidatie Python vs PowerBI
   exit       — afsluiten
 
 Alles anders wordt als vraag aan de LLM gestuurd.
@@ -310,6 +327,8 @@ def main():
             _cmd_help()
         elif cmd == "quiz":
             _cmd_quiz(context, geschiedenis)
+        elif cmd == "valideer":
+            _cmd_valideer(df)
         else:
             # Vraag aan LLM
             geschiedenis.append({"role": "user", "content": invoer})
