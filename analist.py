@@ -73,16 +73,19 @@ Het OTD-model meet 6 logistics performances in de leveringsketen:
 
 {feedback}
 
-Data-context:
+OVERALL DATA-CONTEXT (volledige dataset):
 {context}
 
-Richtlijnen:
+{gefilterd}
+
+BELANGRIJK:
+- Alle cijfers hieronder zijn EXACT berekend uit de data. Gebruik ALLEEN deze cijfers, NOOIT zelf schatten of berekenen.
+- Als er "GEFILTERDE ANALYSE" staat, gebruik die cijfers om de vraag te beantwoorden.
 - Antwoord altijd in het Nederlands
-- Geef concrete cijfers en percentages waar mogelijk
+- Geef concrete cijfers en percentages
 - Verwijs naar specifieke performances wanneer relevant
 - Geef actionable aanbevelingen
-- Wees beknopt maar volledig
-- Als je iets niet kunt afleiden uit de data, zeg dat eerlijk"""
+- Wees beknopt maar volledig"""
 
 
 QUIZ_PROMPT = """Genereer een korte quizvraag (multiple choice, 3 opties) over OTD-concepten
@@ -92,7 +95,7 @@ Antwoord in het Nederlands."""
 
 
 def _bereid_context_voor(df: pd.DataFrame) -> str:
-    """Bereid data-samenvatting voor als context."""
+    """Bereid compacte data-samenvatting voor als basiscontext."""
     totaal = len(df)
     otd = bereken_otd(df)
     scores = bereken_kpi_scores(df)
@@ -127,53 +130,205 @@ def _bereid_context_voor(df: pd.DataFrame) -> str:
         if datum_col.notna().any():
             regels.append(f"Periode: {datum_col.min().strftime('%d-%m-%Y')} t/m {datum_col.max().strftime('%d-%m-%Y')}")
 
-    # OTD per land
+    # Beschikbare dimensies vermelden
     if "Country" in df.columns:
-        regels.append("")
-        regels.append("OTD per land:")
-        for land, groep in df.groupby("Country"):
-            otd_land = bereken_otd(groep)
-            regels.append(f"  - {land}: {otd_land:.1f}% ({len(groep)} orders)")
-
-    # OTD per maand
-    if "RequestedDeliveryDateFinal" in df.columns:
-        df_temp = df.copy()
-        datum = pd.to_datetime(df_temp["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
-        df_temp["_maand"] = datum.dt.to_period("M").astype(str)
-        valid_maand = df_temp[df_temp["_maand"].notna() & (df_temp["_maand"] != "NaT")]
-        if len(valid_maand) > 0:
-            regels.append("")
-            regels.append("OTD per maand:")
-            for maand, groep in valid_maand.groupby("_maand"):
-                otd_maand = bereken_otd(groep)
-                regels.append(f"  - {maand}: {otd_maand:.1f}% ({len(groep)} orders)")
-
-    # OTD per land per maand (top-level kruistabel)
-    if "Country" in df.columns and "RequestedDeliveryDateFinal" in df.columns:
-        df_temp = df.copy()
-        datum = pd.to_datetime(df_temp["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
-        df_temp["_maand"] = datum.dt.to_period("M").astype(str)
-        valid = df_temp[df_temp["_maand"].notna() & (df_temp["_maand"] != "NaT")]
-        if len(valid) > 0:
-            regels.append("")
-            regels.append("OTD per land per maand:")
-            for (land, maand), groep in valid.groupby(["Country", "_maand"]):
-                otd_lm = bereken_otd(groep)
-                regels.append(f"  - {land} / {maand}: {otd_lm:.1f}% ({len(groep)} orders)")
-
-    # OTD per SalesArea
+        landen = sorted(df["Country"].dropna().unique().tolist())
+        regels.append(f"\nBeschikbare landen: {', '.join(str(l) for l in landen)}")
     if "SalesArea" in df.columns:
-        regels.append("")
-        regels.append("OTD per SalesArea:")
-        for area, groep in df.groupby("SalesArea"):
-            otd_area = bereken_otd(groep)
-            regels.append(f"  - {area}: {otd_area:.1f}% ({len(groep)} orders)")
+        areas = sorted(df["SalesArea"].dropna().unique().tolist())
+        regels.append(f"Beschikbare SalesAreas: {', '.join(str(a) for a in areas)}")
 
     return "\n".join(regels)
 
 
-def _stel_vraag(vraag: str, context: str, geschiedenis: list[dict]) -> str:
-    """Stel een vraag aan de LLM."""
+# --- Dynamisch filteren op basis van vraag ---
+
+# Land-naam mapping (Nederlands/Engels/Italiaans -> waarde in data)
+_LAND_ALIASSEN = {
+    "nederland": ["NL", "Netherlands", "Nederland"],
+    "belgie": ["BE", "Belgium", "Belgie"],
+    "duitsland": ["DE", "Germany", "Duitsland", "Deutschland"],
+    "frankrijk": ["FR", "France", "Frankrijk"],
+    "italie": ["IT", "Italy", "Italie", "Italia"],
+    "spanje": ["ES", "Spain", "Spanje", "Espana"],
+    "portugal": ["PT", "Portugal"],
+    "oostenrijk": ["AT", "Austria", "Oostenrijk"],
+    "zwitserland": ["CH", "Switzerland", "Zwitserland"],
+    "polen": ["PL", "Poland", "Polen"],
+    "tsjechie": ["CZ", "Czech", "Tsjechie"],
+    "denemarken": ["DK", "Denmark", "Denemarken"],
+    "zweden": ["SE", "Sweden", "Zweden"],
+    "noorwegen": ["NO", "Norway", "Noorwegen"],
+    "finland": ["FI", "Finland"],
+    "engeland": ["GB", "UK", "England", "Engeland", "United Kingdom", "Groot-Brittannie"],
+    "ierland": ["IE", "Ireland", "Ierland"],
+    "griekenland": ["GR", "Greece", "Griekenland"],
+    "hongarije": ["HU", "Hungary", "Hongarije"],
+    "roemenie": ["RO", "Romania", "Roemenie"],
+    "kroatie": ["HR", "Croatia", "Kroatie"],
+    "slovenie": ["SI", "Slovenia", "Slovenie"],
+    "slowakije": ["SK", "Slovakia", "Slowakije"],
+    "bulgarije": ["BG", "Bulgaria", "Bulgarije"],
+    "litouwen": ["LT", "Lithuania", "Litouwen"],
+    "letland": ["LV", "Latvia", "Letland"],
+    "estland": ["EE", "Estonia", "Estland"],
+    "luxemburg": ["LU", "Luxembourg", "Luxemburg"],
+}
+
+_MAAND_NAMEN = {
+    "januari": 1, "februari": 2, "maart": 3, "april": 4,
+    "mei": 5, "juni": 6, "juli": 7, "augustus": 8,
+    "september": 9, "oktober": 10, "november": 11, "december": 12,
+    "january": 1, "february": 2, "march": 3, "may": 5,
+    "june": 6, "july": 7, "august": 8, "october": 10,
+    "jan": 1, "feb": 2, "mrt": 3, "apr": 4,
+    "jun": 6, "jul": 7, "aug": 8, "sep": 9, "okt": 10, "nov": 11, "dec": 12,
+}
+
+
+def _detecteer_filters(vraag: str, df: pd.DataFrame) -> dict:
+    """Detecteer land, maand, klant, carrier, salesarea uit de vraagtekst."""
+    vraag_lower = vraag.lower()
+    filters = {}
+
+    # Land detectie
+    if "Country" in df.columns:
+        landen_in_data = set(str(l).upper() for l in df["Country"].dropna().unique())
+
+        # Bouw reverse-mapping: alias -> ISO-code
+        alias_naar_code = {}
+        for _, aliassen in _LAND_ALIASSEN.items():
+            # Eerste waarde in lijst is de ISO-code
+            iso_code = aliassen[0].upper()
+            for alias in aliassen:
+                alias_naar_code[alias.lower()] = iso_code
+
+        # Zoek langste match eerst (voorkom dat "IT" in "Italie" matcht op "IT" als land)
+        alle_aliassen = sorted(alias_naar_code.keys(), key=len, reverse=True)
+        for alias in alle_aliassen:
+            if alias in vraag_lower:
+                code = alias_naar_code[alias]
+                if code in landen_in_data:
+                    filters["Country"] = code
+                    break
+
+    # Maand detectie
+    maand_nr = None
+    for naam, nr in _MAAND_NAMEN.items():
+        if naam in vraag_lower:
+            maand_nr = nr
+            break
+
+    # Jaar detectie
+    import re
+    jaar_match = re.search(r"20\d{2}", vraag)
+    jaar = int(jaar_match.group()) if jaar_match else None
+
+    if maand_nr:
+        filters["maand"] = maand_nr
+        filters["jaar"] = jaar  # kan None zijn
+
+    # Klant detectie
+    if "ChainName" in df.columns:
+        klanten = df["ChainName"].dropna().unique().tolist()
+        for klant in klanten:
+            if str(klant).lower() in vraag_lower:
+                filters["ChainName"] = klant
+                break
+
+    # Carrier detectie
+    if "Carrier" in df.columns:
+        carriers = df["Carrier"].dropna().unique().tolist()
+        for carrier in carriers:
+            if str(carrier).lower() in vraag_lower:
+                filters["Carrier"] = carrier
+                break
+
+    # SalesArea detectie
+    if "SalesArea" in df.columns:
+        areas = df["SalesArea"].dropna().unique().tolist()
+        for area in areas:
+            if str(area).lower() in vraag_lower:
+                filters["SalesArea"] = area
+                break
+
+    return filters
+
+
+def _filter_df(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
+    """Pas gedetecteerde filters toe op het dataframe."""
+    df_f = df.copy()
+
+    for kolom in ["Country", "ChainName", "Carrier", "SalesArea"]:
+        if kolom in filters and kolom in df_f.columns:
+            df_f = df_f[df_f[kolom] == filters[kolom]]
+
+    if "maand" in filters and "RequestedDeliveryDateFinal" in df_f.columns:
+        datum = pd.to_datetime(df_f["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+        mask = datum.dt.month == filters["maand"]
+        if filters.get("jaar"):
+            mask = mask & (datum.dt.year == filters["jaar"])
+        df_f = df_f[mask]
+
+    return df_f
+
+
+def _bereken_gefilterde_context(df: pd.DataFrame, filters: dict) -> str:
+    """Bereken volledige KPI-analyse op gefilterd dataframe."""
+    df_f = _filter_df(df, filters)
+
+    if len(df_f) == 0:
+        filter_tekst = ", ".join(f"{k}={v}" for k, v in filters.items())
+        return f"GEFILTERDE ANALYSE ({filter_tekst}):\nGeen orders gevonden voor deze filters."
+
+    filter_tekst = ", ".join(f"{k}={v}" for k, v in filters.items())
+    otd = bereken_otd(df_f)
+    scores = bereken_kpi_scores(df_f)
+    rc = root_cause_samenvatting(df_f)
+
+    regels = [
+        f"GEFILTERDE ANALYSE ({filter_tekst}):",
+        f"Aantal orders: {len(df_f)}",
+        f"OTD: {otd:.1f}%",
+        "",
+        "Performances:",
+    ]
+    for kpi_id in BESCHIKBARE_IDS:
+        score = scores.get(kpi_id)
+        naam = PERFORMANCE_NAMEN.get(kpi_id, kpi_id)
+        if score is not None:
+            regels.append(f"  - {naam}: {score:.1f}%")
+
+    if not rc.empty:
+        regels.append("")
+        regels.append("Root causes (te late orders):")
+        for _, rij in rc.head(5).iterrows():
+            regels.append(f"  - {rij['root_cause_naam']}: {rij['aantal']}x ({rij['percentage']:.1f}%)")
+
+    # Top 5 slechtste klanten in deze selectie
+    if "ChainName" in df_f.columns and df_f["ChainName"].nunique() > 1:
+        regels.append("")
+        regels.append("Slechtste 5 klanten (OTD):")
+        klant_otd = []
+        for klant, groep in df_f.groupby("ChainName"):
+            klant_otd.append({"klant": klant, "otd": bereken_otd(groep), "n": len(groep)})
+        klant_otd.sort(key=lambda x: x["otd"])
+        for k in klant_otd[:5]:
+            regels.append(f"  - {k['klant']}: {k['otd']:.1f}% ({k['n']} orders)")
+
+    # Top carriers in deze selectie
+    if "Carrier" in df_f.columns and df_f["Carrier"].nunique() > 1:
+        regels.append("")
+        regels.append("OTD per carrier:")
+        for carrier, groep in df_f.groupby("Carrier"):
+            regels.append(f"  - {carrier}: {bereken_otd(groep):.1f}% ({len(groep)} orders)")
+
+    return "\n".join(regels)
+
+
+def _stel_vraag(vraag: str, context: str, geschiedenis: list[dict],
+                df: pd.DataFrame | None = None) -> str:
+    """Stel een vraag aan de LLM, met dynamisch gefilterde data-context."""
     client = _get_llm_client()
     if client is None:
         return "LLM niet beschikbaar. Stel OPENROUTER_API_KEY in als environment variabele."
@@ -181,11 +336,19 @@ def _stel_vraag(vraag: str, context: str, geschiedenis: list[dict]) -> str:
     rekenmodel = toon_config_tekst()
     feedback = feedback_als_tekst()
 
+    # Dynamisch filteren: detecteer land/maand/klant in de vraag
+    gefilterd = ""
+    if df is not None:
+        filters = _detecteer_filters(vraag, df)
+        if filters:
+            gefilterd = _bereken_gefilterde_context(df, filters)
+
     berichten = [
         {"role": "system", "content": SYSTEM_PROMPT.format(
             context=context,
             rekenmodel=rekenmodel,
             feedback=feedback,
+            gefilterd=gefilterd,
         )},
     ]
     for bericht in geschiedenis[-10:]:
@@ -385,8 +548,12 @@ def main():
             # Vraag aan LLM
             geschiedenis.append({"role": "user", "content": invoer})
             print()
-            antwoord = _stel_vraag(invoer, context, geschiedenis)
-            print(antwoord)
+            antwoord = _stel_vraag(invoer, context, geschiedenis, df=df)
+            # Veilig printen voor Windows terminal (cp1252)
+            try:
+                print(antwoord)
+            except UnicodeEncodeError:
+                print(antwoord.encode("ascii", errors="replace").decode("ascii"))
             geschiedenis.append({"role": "assistant", "content": antwoord})
 
 
