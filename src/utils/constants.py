@@ -1,5 +1,7 @@
 """Constanten voor het OTD Dashboard — 6 Logistics Performances."""
 
+from src.config import bouw_performance_stappen as _bouw_stappen
+
 # Elho branding
 ELHO_GROEN = "#76a73a"
 ELHO_DONKER = "#0a4a2f"
@@ -8,52 +10,8 @@ ROOD = "#e74c3c"
 GRIJS = "#95a5a6"
 ORANJE = "#e67e22"
 
-# 6 Logistics Performances — volgorde = ketenverloop
-PERFORMANCE_STAPPEN = [
-    {
-        "id": "planned_performance_ok",
-        "naam": "Planned Performance",
-        "nummer": 1,
-        "beschikbaar": True,
-        "beschrijving": "TMS-datum vs SAP Delivery Date",
-    },
-    {
-        "id": "capacity_performance_ok",
-        "naam": "Capacity Performance",
-        "nummer": 2,
-        "beschikbaar": True,
-        "beschrijving": "Bucket planning (moved/not moved)",
-    },
-    {
-        "id": "warehouse_performance_ok",
-        "naam": "Warehouse Performance",
-        "nummer": 3,
-        "beschikbaar": True,
-        "beschrijving": "Actual GI vs Planned GI",
-    },
-    {
-        "id": "carrier_pickup_ok",
-        "naam": "Carrier Pick-up",
-        "nummer": 4,
-        "beschikbaar": False,
-        "beschrijving": "Under construction — geen data beschikbaar",
-    },
-    {
-        "id": "carrier_departure_ok",
-        "naam": "Carrier Departure",
-        "nummer": 5,
-        "beschikbaar": False,
-        "beschrijving": "Under construction — geen data beschikbaar",
-    },
-    {
-        "id": "carrier_transit_ok",
-        "naam": "Carrier Transit",
-        "nummer": 6,
-        "beschikbaar": True,
-        "beschrijving": "POD vs TMS-datum",
-    },
-]
-
+# 6 Logistics Performances — afgeleid uit rekenmodel.yaml
+PERFORMANCE_STAPPEN = _bouw_stappen()
 PERFORMANCE_IDS = [s["id"] for s in PERFORMANCE_STAPPEN]
 PERFORMANCE_NAMEN = {s["id"]: s["naam"] for s in PERFORMANCE_STAPPEN}
 BESCHIKBARE_STAPPEN = [s for s in PERFORMANCE_STAPPEN if s["beschikbaar"]]

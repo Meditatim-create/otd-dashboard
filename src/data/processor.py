@@ -1,8 +1,14 @@
-"""Performance-berekeningen en aggregaties — 6 Logistics Performances."""
+"""Performance-berekeningen en aggregaties — 6 Logistics Performances.
+
+Berekeningen zijn config-driven via rekenmodel.yaml:
+- method: "column" → lees pre-berekende PowerBI-kolom
+- method: "recalculate" → herbereken uit datumkolommen
+"""
 
 import pandas as pd
 import numpy as np
 
+from src.config import get_otd_config, get_performance_config, get_alle_performances
 from src.utils.constants import (
     PERFORMANCE_STAPPEN, PERFORMANCE_IDS, PERFORMANCE_NAMEN,
     BESCHIKBARE_STAPPEN, BESCHIKBARE_IDS,
@@ -48,90 +54,139 @@ def join_likp(df_datagrid: pd.DataFrame, df_likp: pd.DataFrame) -> tuple[pd.Data
     return df, mismatches
 
 
-def bereken_performances(df: pd.DataFrame) -> pd.DataFrame:
-    """Berekent de 6 performance booleans op basis van de beschikbare data.
+# --- Helpers voor config-driven berekeningen ---
 
-    1. Planned Performance: Leveringstermijn (LIKP) > SAP Delivery Date → False (Late)
-    2. Capacity Performance: PERFORMANCE_CAPACITY != "not moved" → True
-    3. Warehouse Performance: PERFORMANCE_LOGISTIC == "On schedule" → True
-    4. Carrier Pick-up: geen data → None
-    5. Carrier Departure: geen data → None
-    6. Carrier Transit: PODDeliveryDateShipment > Leveringstermijn → False (Late)
+def _bereken_from_column(df: pd.DataFrame, cfg: dict) -> pd.Series:
+    """Lees een PowerBI-kolom en map waarden naar bool (True/False/NaN).
+
+    cfg verwacht: source_column, ok_values, optioneel no_pod_values.
+    """
+    source_column = cfg.get("source_column", "")
+    ok_values = cfg.get("ok_values", [])
+    no_pod_values = cfg.get("no_pod_values", [])
+
+    if source_column not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+
+    col = df[source_column].astype(str).str.strip().str.lower()
+    ok_lower = [v.lower() for v in ok_values]
+
+    result = pd.Series(np.nan, index=df.index, dtype="object")
+
+    # Alleen waar de bron niet-leeg is
+    niet_leeg = df[source_column].notna()
+    result[niet_leeg] = col[niet_leeg].isin(ok_lower).values
+
+    # No-POD waarden → NaN (uitsluiten van noemer)
+    if no_pod_values:
+        no_pod_lower = [v.lower() for v in no_pod_values]
+        is_no_pod = col.isin(no_pod_lower)
+        result[is_no_pod] = np.nan
+
+    return result
+
+
+def _bereken_from_dates(df: pd.DataFrame, cfg: dict) -> pd.Series:
+    """Herbereken performance uit twee datumkolommen: dates[0] <= dates[1] → OK.
+
+    cfg verwacht: dates (lijst van 2 kolomnamen).
+    """
+    dates = cfg.get("dates", [])
+    if len(dates) < 2:
+        return pd.Series(np.nan, index=df.index)
+
+    col_a, col_b = dates[0], dates[1]
+    if col_a not in df.columns or col_b not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+
+    date_a = pd.to_datetime(df[col_a], dayfirst=True, errors="coerce")
+    date_b = pd.to_datetime(df[col_b], dayfirst=True, errors="coerce")
+
+    return pd.Series(
+        np.where(
+            date_a.notna() & date_b.notna(),
+            date_a <= date_b,
+            np.nan,
+        ),
+        index=df.index,
+    )
+
+
+def _bereken_performance(df: pd.DataFrame, kpi_id: str) -> pd.Series:
+    """Bereken één performance-stap op basis van config (column of recalculate)."""
+    cfg = get_performance_config(kpi_id)
+
+    if not cfg.get("beschikbaar", False):
+        return pd.Series(np.nan, index=df.index)
+
+    method = cfg.get("method", "")
+    if method == "column":
+        return _bereken_from_column(df, cfg)
+    elif method == "recalculate":
+        return _bereken_from_dates(df, cfg)
+    else:
+        return pd.Series(np.nan, index=df.index)
+
+
+# --- Hoofd-functies ---
+
+def bereken_performances(df: pd.DataFrame) -> pd.DataFrame:
+    """Berekent de 6 performance booleans op basis van rekenmodel.yaml.
+
+    Per KPI wordt de methode (column of recalculate) bepaald door de config.
+    Voegt ook otd_ok kolom toe.
     """
     df = df.copy()
 
-    # 1. Planned Performance: Leveringstermijn > SAP Delivery Date → Late
-    if "Leveringstermijn" in df.columns and "SAP Delivery Date" in df.columns:
-        lev = pd.to_datetime(df["Leveringstermijn"], dayfirst=True, errors="coerce")
-        sap = pd.to_datetime(df["SAP Delivery Date"], dayfirst=True, errors="coerce")
-        # Waar beide datums geldig zijn: on time als Leveringstermijn <= SAP Delivery Date
-        df["planned_performance_ok"] = np.where(
-            lev.notna() & sap.notna(),
-            lev <= sap,
-            np.nan,
-        )
+    # Bereken elke performance-stap via config
+    performances = get_alle_performances()
+    for kpi_id in performances:
+        df[kpi_id] = _bereken_performance(df, kpi_id)
+
+    # OTD als kolom toevoegen (voor root cause analyse)
+    otd_cfg = get_otd_config()
+    if otd_cfg.get("method") == "column":
+        df["otd_ok"] = _bereken_from_column(df, otd_cfg)
     else:
-        df["planned_performance_ok"] = np.nan
+        # Recalculate: POD <= RequestedDeliveryDateFinal
+        if "PODDeliveryDateShipment" in df.columns and "RequestedDeliveryDateFinal" in df.columns:
+            pod = pd.to_datetime(df["PODDeliveryDateShipment"], dayfirst=True, errors="coerce")
+            req = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+            df["otd_ok"] = np.where(
+                pod.notna() & req.notna(),
+                pod <= req,
+                np.nan,
+            )
+        else:
+            df["otd_ok"] = np.nan
 
-    # 2. Capacity Performance: "not moved" = False, anders True
-    if "PERFORMANCE_CAPACITY" in df.columns:
-        cap = df["PERFORMANCE_CAPACITY"].astype(str).str.strip().str.lower()
-        df["capacity_performance_ok"] = np.where(
-            df["PERFORMANCE_CAPACITY"].notna(),
-            cap != "not moved",
-            np.nan,
-        )
-    else:
-        df["capacity_performance_ok"] = np.nan
-
-    # 3. Warehouse Performance: "On schedule" = True
-    if "PERFORMANCE_LOGISTIC" in df.columns:
-        wh = df["PERFORMANCE_LOGISTIC"].astype(str).str.strip().str.lower()
-        df["warehouse_performance_ok"] = np.where(
-            df["PERFORMANCE_LOGISTIC"].notna(),
-            wh == "on schedule",
-            np.nan,
-        )
-    else:
-        df["warehouse_performance_ok"] = np.nan
-
-    # 4. Carrier Pick-up: geen data
-    df["carrier_pickup_ok"] = np.nan
-
-    # 5. Carrier Departure: geen data
-    df["carrier_departure_ok"] = np.nan
-
-    # 6. Carrier Transit: PODDeliveryDateShipment > Leveringstermijn → Late
-    if "PODDeliveryDateShipment" in df.columns and "Leveringstermijn" in df.columns:
-        pod = pd.to_datetime(df["PODDeliveryDateShipment"], dayfirst=True, errors="coerce")
-        lev = pd.to_datetime(df["Leveringstermijn"], dayfirst=True, errors="coerce")
-        df["carrier_transit_ok"] = np.where(
-            pod.notna() & lev.notna(),
-            pod <= lev,
-            np.nan,
-        )
-    else:
-        df["carrier_transit_ok"] = np.nan
-
-    # Converteer naar nullable boolean
-    for col in PERFORMANCE_IDS:
+    # Converteer naar nullable boolean (object type bewaart NaN + True/False)
+    for col in list(performances.keys()) + ["otd_ok"]:
         if col in df.columns:
-            df[col] = df[col].astype("object")  # Bewaar NaN + True/False
+            df[col] = df[col].astype("object")
 
     return df
 
 
 def bereken_otd(df: pd.DataFrame) -> float:
     """Berekent overall On-Time Delivery %.
-    OTD = PODDeliveryDateShipment <= RequestedDeliveryDateFinal
+
+    Gebruikt otd_ok kolom als beschikbaar (config-driven), anders fallback naar datums.
     """
+    # Gebruik pre-berekende otd_ok kolom als die er is
+    if "otd_ok" in df.columns:
+        valid = df["otd_ok"].dropna()
+        if len(valid) == 0:
+            return 0.0
+        return valid.astype(float).mean() * 100
+
+    # Fallback: herbereken uit datums
     if "PODDeliveryDateShipment" not in df.columns or "RequestedDeliveryDateFinal" not in df.columns:
         return 0.0
 
     pod = pd.to_datetime(df["PODDeliveryDateShipment"], dayfirst=True, errors="coerce")
     req = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
 
-    # Alleen rijen meenemen waar beide datums geldig zijn
     valid = pod.notna() & req.notna()
     if valid.sum() == 0:
         return 0.0
@@ -164,16 +219,20 @@ def bereken_kpi_scores(df: pd.DataFrame) -> dict[str, float | None]:
 
 def bereken_root_causes(df: pd.DataFrame) -> pd.DataFrame:
     """Bepaalt voor elke te late order de eerste falende beschikbare stap (root cause).
-    Te laat = PODDeliveryDateShipment > RequestedDeliveryDateFinal.
+
+    Gebruikt otd_ok kolom als beschikbaar (config-driven) voor bepalen "te laat".
     """
-    if "PODDeliveryDateShipment" not in df.columns or "RequestedDeliveryDateFinal" not in df.columns:
+    # Bepaal te late orders via otd_ok kolom of datumvergelijking
+    if "otd_ok" in df.columns:
+        te_laat_mask = df["otd_ok"].notna() & (df["otd_ok"].astype(float) == 0.0)
+        te_laat = df[te_laat_mask].copy()
+    elif "PODDeliveryDateShipment" in df.columns and "RequestedDeliveryDateFinal" in df.columns:
+        pod = pd.to_datetime(df["PODDeliveryDateShipment"], dayfirst=True, errors="coerce")
+        req = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
+        valid = pod.notna() & req.notna()
+        te_laat = df[valid & (pod > req)].copy()
+    else:
         return pd.DataFrame(columns=["DeliveryNumber", "root_cause", "root_cause_naam"])
-
-    pod = pd.to_datetime(df["PODDeliveryDateShipment"], dayfirst=True, errors="coerce")
-    req = pd.to_datetime(df["RequestedDeliveryDateFinal"], dayfirst=True, errors="coerce")
-
-    valid = pod.notna() & req.notna()
-    te_laat = df[valid & (pod > req)].copy()
 
     if te_laat.empty:
         return pd.DataFrame(columns=["DeliveryNumber", "root_cause", "root_cause_naam"])
@@ -223,7 +282,7 @@ def waterval_data(df: pd.DataFrame) -> pd.DataFrame:
     te_laat = len(rc)
     op_tijd = totaal_orders - te_laat
 
-    nummers = "①②③④⑤⑥"
+    nummers = "\u2460\u2461\u2462\u2463\u2464\u2465"
     rijen = [{"stap": "Totaal Orders", "waarde": totaal_orders, "type": "totaal"}]
 
     for stap in BESCHIKBARE_STAPPEN:

@@ -7,6 +7,8 @@ import streamlit as st
 
 from src.data.processor import bereken_kpi_scores, bereken_otd, root_cause_samenvatting
 from src.utils.constants import PERFORMANCE_NAMEN, BESCHIKBARE_IDS
+from src.config import toon_config_tekst
+from src.feedback_manager import feedback_als_tekst
 
 
 SYSTEM_PROMPT = """Je bent een OTD-analist voor Elho B.V., een toonaangevend bedrijf in tuinproducten.
@@ -21,6 +23,10 @@ Het OTD-model meet 6 logistics performances in de leveringsketen:
 6. Carrier Transit — POD vs TMS-datum
 
 OTD = POD-datum <= Gevraagde leverdatum (RequestedDeliveryDateFinal)
+
+{rekenmodel}
+
+{feedback}
 
 Je hebt toegang tot de volgende data-context over de huidige dataset:
 {context}
@@ -136,8 +142,15 @@ def stel_vraag(vraag: str, context: str, geschiedenis: list[dict]) -> str:
         client = _get_client()
         model = _get_model()
 
+        rekenmodel = toon_config_tekst()
+        feedback = feedback_als_tekst()
+
         berichten = [
-            {"role": "system", "content": SYSTEM_PROMPT.format(context=context)},
+            {"role": "system", "content": SYSTEM_PROMPT.format(
+                context=context,
+                rekenmodel=rekenmodel,
+                feedback=feedback,
+            )},
         ]
         for bericht in geschiedenis[-10:]:
             berichten.append(bericht)
