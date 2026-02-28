@@ -152,10 +152,10 @@ def kruisvalidatie(df: pd.DataFrame) -> pd.DataFrame:
             status = _validatie_status(verschil)
         elif python_pct is not None:
             verschil = None
-            status = "— (geen bronkolom)"
+            status = "- (geen bronkolom)"
         else:
             verschil = None
-            status = "— (geen data)"
+            status = "- (geen data)"
 
         resultaten.append({
             "KPI": naam,

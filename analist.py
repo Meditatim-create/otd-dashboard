@@ -240,10 +240,12 @@ def _cmd_valideer(df: pd.DataFrame):
         print("Geen kruisvalidatie mogelijk — controleer rekenmodel.yaml configuratie.")
     else:
         for _, rij in kv.iterrows():
-            py_pct = f"{rij['Python %']:.2f}%" if pd.notna(rij['Python %']) else "—"
-            pb_pct = f"{rij['PowerBI kolom %']:.2f}%" if pd.notna(rij['PowerBI kolom %']) else "—"
-            verschil = f"{rij['Verschil']:.2f}%" if pd.notna(rij['Verschil']) else "—"
-            print(f"  {rij['KPI']:25s}  Python: {py_pct:>8s}  PowerBI: {pb_pct:>8s}  Verschil: {verschil:>7s}  {rij['Status']}")
+            py_pct = f"{rij['Python %']:.2f}%" if pd.notna(rij['Python %']) else "-"
+            pb_pct = f"{rij['PowerBI kolom %']:.2f}%" if pd.notna(rij['PowerBI kolom %']) else "-"
+            verschil = f"{rij['Verschil']:.2f}%" if pd.notna(rij['Verschil']) else "-"
+            # Vervang emoji's door ASCII voor Windows terminal compatibiliteit
+            status = rij['Status'].replace("✅", "OK").replace("⚠️", "WARN").replace("❌", "FAIL")
+            print(f"  {rij['KPI']:25s}  Python: {py_pct:>8s}  PowerBI: {pb_pct:>8s}  Verschil: {verschil:>7s}  {status}")
     print()
 
 
